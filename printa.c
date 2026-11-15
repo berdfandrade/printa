@@ -25,6 +25,7 @@ typedef struct {
     GArray *windows;   /* GdkRectangle das janelas visíveis, a do topo por último */
 
     GtkWidget *win;
+    GtkWidget *save_btn; /* aparece junto à seleção */
     guint grab_timer;
 
     gboolean dragging;
@@ -377,6 +378,19 @@ static gboolean on_draw(GtkWidget *widget, cairo_t *cr, App *app)
 
 /* ---------- eventos ---------- */
 
+/* O botão Salvar só faz sentido com uma seleção pronta. */
+static void update_save_button(App *app)
+{
+    gtk_widget_set_visible(app->save_btn, app->have_sel && !app->dragging);
+    gtk_widget_queue_resize(app->save_btn); /* reposiciona junto à nova seleção */
+}
+
+static void on_save_clicked(GtkButton *btn, App *app)
+{
+    (void)btn;
+    accept_save_and_copy(app);
+}
+
 static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, App *app)
 {
     if (ev->button == 3) {
@@ -401,6 +415,7 @@ static gboolean on_button_press(GtkWidget *w, GdkEventButton *ev, App *app)
     app->have_sel = FALSE;
     app->x0 = app->x1 = ev->x;
     app->y0 = app->y1 = ev->y;
+    update_save_button(app);
     gtk_widget_queue_draw(w);
     return TRUE;
 }
@@ -419,6 +434,7 @@ static gboolean on_button_release(GtkWidget *w, GdkEventButton *ev, App *app)
         app->sel = drag_rect(app);
         app->have_sel = app->sel.width > 0 && app->sel.height > 0;
     }
+    update_save_button(app);
     gtk_widget_queue_draw(w);
     return TRUE;
 }
@@ -483,8 +499,28 @@ static gboolean on_map(GtkWidget *w, GdkEvent *ev, App *app)
     GdkDevice *pointer = gdk_seat_get_pointer(gdk_display_get_default_seat(gtk_widget_get_display(w)));
     gdk_device_get_position(pointer, NULL, &x, &y);
     app->have_hover = window_at(app, x, y, &app->hover);
+    update_save_button(app);
     gtk_widget_queue_draw(w);
     return FALSE;
+}
+
+/* Põe o botão Salvar logo abaixo do canto inferior direito da seleção;
+ * sem espaço embaixo, ele fica por dentro, no mesmo canto. */
+static gboolean on_child_position(GtkOverlay *overlay, GtkWidget *child, GdkRectangle *pos, App *app)
+{
+    (void)overlay;
+    const int gap = 8;
+    GtkRequisition req;
+    gtk_widget_get_preferred_size(child, NULL, &req);
+    GdkRectangle *s = &app->sel;
+
+    pos->width = req.width;
+    pos->height = req.height;
+    pos->x = CLAMP(s->x + s->width - req.width, 0, MAX(app->width - req.width, 0));
+    pos->y = s->y + s->height + gap;
+    if (pos->y + req.height > app->height)
+        pos->y = MAX(s->y + s->height - req.height - gap, 0);
+    return TRUE;
 }
 
 static void show_overlay(App *app)
@@ -492,10 +528,24 @@ static void show_overlay(App *app)
     app->win = gtk_window_new(GTK_WINDOW_POPUP); /* sem decoração, cobre todos os monitores */
     gtk_window_move(GTK_WINDOW(app->win), 0, 0);
 
+    GtkWidget *overlay = gtk_overlay_new();
+    gtk_container_add(GTK_CONTAINER(app->win), overlay);
+    g_signal_connect(overlay, "get-child-position", G_CALLBACK(on_child_position), app);
+
     GtkWidget *area = gtk_drawing_area_new();
     gtk_widget_set_size_request(area, app->width, app->height);
     gtk_widget_add_events(area, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK);
-    gtk_container_add(GTK_CONTAINER(app->win), area);
+    gtk_container_add(GTK_CONTAINER(overlay), area);
+
+    app->save_btn = gtk_button_new_with_label("Salvar");
+    gtk_button_set_image(GTK_BUTTON(app->save_btn),
+                         gtk_image_new_from_icon_name("document-save-symbolic", GTK_ICON_SIZE_BUTTON));
+    gtk_button_set_always_show_image(GTK_BUTTON(app->save_btn), TRUE);
+    gtk_style_context_add_class(gtk_widget_get_style_context(app->save_btn), "suggested-action");
+    gtk_widget_set_tooltip_text(app->save_btn, "Salvar em Imagens e copiar (Enter)");
+    gtk_widget_set_no_show_all(app->save_btn, TRUE); /* visibilidade controlada pela seleção */
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), app->save_btn);
+    g_signal_connect(app->save_btn, "clicked", G_CALLBACK(on_save_clicked), app);
 
     g_signal_connect(area, "draw", G_CALLBACK(on_draw), app);
     g_signal_connect(area, "button-press-event", G_CALLBACK(on_button_press), app);
