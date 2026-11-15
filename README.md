@@ -31,3 +31,7 @@ depois que o programa fecha se houver um gerenciador de área de transferência
 
 Para usar com Print Screen: em Configurações → Teclado → Atalhos, crie um atalho
 personalizado apontando para o caminho do `printa`.
+
+## Licença
+
+MIT — veja [LICENSE](LICENSE).
