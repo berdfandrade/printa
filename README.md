@@ -1,45 +1,49 @@
 <p align="center">
-  <img src="docs/logo.svg" width="140" alt="Logo do printa">
+  <img src="docs/logo.svg" width="140" alt="printa logo">
 </p>
 
 <h1 align="center">printa</h1>
 
 <p align="center">
-  Captura de tela leve para Linux (X11), escrita em C com GTK3 — no espírito do Flameshot.
+  A lightweight screenshot tool for Linux (X11), written in C with GTK3 — in the spirit of Flameshot.
 </p>
 
 <p align="center">
-  <img alt="Licença MIT" src="https://img.shields.io/badge/licen%C3%A7a-MIT-7B3CFF">
+  <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-7B3CFF">
   <img alt="C + GTK3" src="https://img.shields.io/badge/C-GTK3-C13BD8">
-  <img alt="X11" src="https://img.shields.io/badge/plataforma-X11-FF5A7E">
+  <img alt="X11" src="https://img.shields.io/badge/platform-X11-FF5A7E">
+</p>
+
+<p align="center">
+  <a href="https://berdfandrade.github.io/printa/">Website</a>
 </p>
 
 ---
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="printa com uma janela selecionada: o resto da tela escurecido, o tamanho da seleção no canto e o botão Salvar logo abaixo">
+  <img src="docs/screenshot.png" alt="printa with a window selected: the rest of the screen dimmed, the selection size in the corner and the Save button just below">
 </p>
 
-## Recursos
+## Features
 
-- **Janela com um clique** — passe o mouse e a janela sob o cursor é destacada; clique para selecioná-la (com a moldura, sem a sombra invisível das janelas GTK).
-- **Região livre** — arraste para selecionar qualquer retângulo, em qualquer direção.
-- **Tela congelada** — a imagem é tirada antes de a interface aparecer, então menus e tooltips abertos entram na captura (combine com `-d`).
-- **Salvar ou copiar** — salva em `~/Imagens`, copia para a área de transferência, ou os dois; "Salvar como" aceita PNG e JPEG.
-- **Vários monitores e HiDPI** — cobre a área de trabalho inteira e salva na resolução real da tela.
-- **Pequeno** — um binário, sem serviço em segundo plano, sem configuração.
+- **One-click windows** — hover and the window under the cursor is highlighted; click to select it (frame included, minus the invisible shadow GTK windows draw around themselves).
+- **Free regions** — drag to select any rectangle, in any direction.
+- **Frozen screen** — the image is taken before the interface appears, so open menus and tooltips make it into the shot (pair it with `-d`).
+- **Save or copy** — save to `~/Pictures`, copy to the clipboard, or both; "Save as" takes PNG and JPEG.
+- **Multi-monitor and HiDPI** — covers the whole desktop and saves at the screen's real resolution.
+- **Small** — one binary, no background service, no configuration.
 
-## Instalação
+## Installation
 
-Dependências de compilação:
+Build dependencies:
 
-| Distribuição | Comando |
+| Distribution | Command |
 | --- | --- |
 | Debian / Ubuntu / Mint | `sudo apt install build-essential libgtk-3-dev` |
 | Fedora | `sudo dnf install gcc make gtk3-devel libX11-devel` |
 | Arch | `sudo pacman -S base-devel gtk3 libx11` |
 
-Compile e instale (em `/usr/local/bin`, mude com `PREFIX=`):
+Build and install (to `/usr/local/bin`; change it with `PREFIX=`):
 
 ```bash
 git clone https://github.com/berdfandrade/printa.git
@@ -48,88 +52,89 @@ make
 sudo make install
 ```
 
-Para remover: `sudo make uninstall`.
+To remove it: `sudo make uninstall`.
 
-## Uso
-
-```bash
-printa          # captura agora
-printa -d 3     # espera 3 segundos antes de capturar
-```
-
-A tela congela e escurece. Depois:
-
-| Ação | Resultado |
-| --- | --- |
-| Passar o mouse | Destaca a janela sob o cursor (borda tracejada) |
-| Clique | Seleciona essa janela |
-| Arrastar | Seleciona uma região |
-| **Enter** ou botão **Salvar** | Salva em `~/Imagens/Captura_<data>.png` e copia |
-| Duplo clique numa janela | Seleciona e salva de uma vez |
-| **Ctrl+C** | Só copia para a área de transferência |
-| **Ctrl+S** | Abre "Salvar como" (`.png` ou `.jpg`) |
-| **Esc** ou botão direito | Cancela |
-
-Sem nenhuma seleção, **Enter** captura a tela inteira.
-
-### Em scripts
-
-O caminho do arquivo salvo vai para o stdout, e o código de saída é `0` quando
-algo foi salvo ou copiado e `1` quando a captura foi cancelada ou falhou:
+## Usage
 
 ```bash
-arquivo=$(printa) && notify-send "Captura salva" "$arquivo"
+printa          # capture now
+printa -d 3     # wait 3 seconds before capturing
 ```
 
-### Na tecla Print Screen
+The screen freezes and dims. Then:
 
-Crie um atalho de teclado personalizado que rode `printa`:
-
-- **Cinnamon:** Configurações do Sistema → Teclado → Atalhos → *Adicionar atalho personalizado*.
-- **GNOME (sessão Xorg):** Configurações → Teclado → Atalhos de teclado → *Atalhos personalizados*.
-- **Outros ambientes:** qualquer ferramenta de atalhos globais, como `xbindkeys` ou `sxhkd`.
-
-Se o ambiente já usar Print Screen para a própria captura, desative esse atalho antes.
-
-## Como funciona
-
-1. Ao iniciar, o printa lê a janela raiz do X11 inteira para um `GdkPixbuf` e
-   pega a lista de janelas visíveis na ordem de empilhamento do gerenciador de
-   janelas (`_NET_CLIENT_LIST_STACKING`), descontando a sombra das janelas CSD
-   (`_GTK_FRAME_EXTENTS`).
-2. Mostra uma janela sem bordas do tamanho de todos os monitores, desenhando a
-   captura congelada com uma camada escura por cima, e prende mouse e teclado
-   para si.
-3. A seleção recorta o pixbuf original, então o resultado é exatamente o que
-   estava na tela, sem a interface do printa.
-
-### Estrutura
-
-| Arquivo | Papel |
+| Action | Result |
 | --- | --- |
-| `printa.c` | Captura, interface GTK, eventos, salvar e copiar |
-| `geometry.c` | Geometria da seleção: arrasto, janela sob o cursor, sombra CSD, posição do botão |
-| `output.c` | Recorte da captura, formato pela extensão, nome do arquivo |
-| `tests/test_printa.c` | Testes de unidade de `geometry.c` e `output.c` |
+| Hover | Highlights the window under the cursor (dashed border) |
+| Click | Selects that window |
+| Drag | Selects a region |
+| **Enter** or the **Save** button | Saves to `~/Pictures/Captura_<date>.png` and copies it |
+| Double-click a window | Selects and saves in one go |
+| **Ctrl+C** | Copies to the clipboard only |
+| **Ctrl+S** | Opens "Save as" (`.png` or `.jpg`) |
+| **Esc** or right-click | Cancels |
 
-## Testes
+With nothing selected, **Enter** captures the whole screen.
 
-Os testes usam o GTest da GLib e não precisam de display:
+The on-screen hints and file names are currently in Portuguese.
+
+### In scripts
+
+The saved file's path goes to stdout, and the exit code is `0` when something
+was saved or copied and `1` when the capture was cancelled or failed:
+
+```bash
+file=$(printa) && notify-send "Screenshot saved" "$file"
+```
+
+### On the Print Screen key
+
+Create a custom keyboard shortcut that runs `printa`:
+
+- **Cinnamon:** System Settings → Keyboard → Shortcuts → *Add custom shortcut*.
+- **GNOME (Xorg session):** Settings → Keyboard → Keyboard Shortcuts → *Custom Shortcuts*.
+- **Anything else:** any global hotkey tool, such as `xbindkeys` or `sxhkd`.
+
+If your desktop already binds Print Screen to its own screenshot tool, disable that shortcut first.
+
+## How it works
+
+1. On start, printa reads the whole X11 root window into a `GdkPixbuf` and
+   collects the visible windows in the window manager's stacking order
+   (`_NET_CLIENT_LIST_STACKING`), trimming the shadow of client-side-decorated
+   windows (`_GTK_FRAME_EXTENTS`).
+2. It shows a borderless window spanning every monitor, draws the frozen capture
+   with a dark layer on top, and grabs the mouse and keyboard.
+3. The selection crops the original pixbuf, so the result is exactly what was on
+   screen, without printa's own interface.
+
+### Layout
+
+| File | Role |
+| --- | --- |
+| `printa.c` | Capture, GTK interface, events, saving and copying |
+| `geometry.c` | Selection geometry: drag rectangle, window under the cursor, CSD shadow, button placement |
+| `output.c` | Cropping the capture, format from the file extension, file name |
+| `tests/test_printa.c` | Unit tests for `geometry.c` and `output.c` |
+| `docs/` | The project website (GitHub Pages) |
+
+## Tests
+
+The tests use GLib's GTest and need no display:
 
 ```bash
 make test
 ```
 
-## Limitações
+## Limitations
 
-- **Só X11.** No Wayland o compositor não deixa programas lerem a tela
-  diretamente; lá a captura sai em branco (o printa avisa).
-- **Sem anotações.** Não há setas, texto nem desfoque como no Flameshot: o foco
-  é capturar rápido.
-- **Área de transferência.** A imagem copiada continua disponível depois que o
-  printa fecha só se houver um gerenciador de área de transferência rodando (o
-  Cinnamon e o GNOME têm um).
+- **X11 only.** Wayland compositors don't let programs read the screen
+  directly; there the capture comes out blank (printa warns about it).
+- **No annotations.** No arrows, text or blur like Flameshot: the focus is on
+  capturing fast.
+- **Clipboard.** The copied image stays available after printa exits only if a
+  clipboard manager is running (Cinnamon and GNOME have one).
 
-## Licença
+## License
 
 [MIT](LICENSE) © 2026 Bernardo Andrade
