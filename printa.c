@@ -14,9 +14,9 @@
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
-#include <math.h>
 
-#define CLICK_SLOP 4 /* movimento máximo (px) para um arrasto contar como clique */
+#include "geometry.h"
+#include "output.h"
 
 typedef struct {
     GdkPixbuf *shot;   /* tela inteira, em pixels do dispositivo */
@@ -88,10 +88,7 @@ static void collect_windows(App *app, GdkScreen *screen)
             csd_shadow(dpy, xid, ext);
         }
         if (gdk_x11_display_error_trap_pop(display) == 0 && viewable) {
-            r.x += ext[0] / app->scale;
-            r.width -= (ext[0] + ext[1]) / app->scale;
-            r.y += ext[2] / app->scale;
-            r.height -= (ext[2] + ext[3]) / app->scale;
+            r = without_csd_shadow(r, ext, app->scale);
             if (gdk_rectangle_intersect(&r, &screen_rect, &clipped))
                 g_array_append_val(app->windows, clipped);
         }
@@ -113,35 +110,17 @@ static gboolean capture_screen(App *app)
     return TRUE;
 }
 
-/* ---------- geometria da seleção ---------- */
-
-static gboolean window_at(App *app, double x, double y, GdkRectangle *out)
-{
-    for (int i = (int)app->windows->len - 1; i >= 0; i--) {
-        GdkRectangle *r = &g_array_index(app->windows, GdkRectangle, i);
-        if (x >= r->x && x < r->x + r->width && y >= r->y && y < r->y + r->height) {
-            *out = *r;
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
+/* ---------- estado da seleção ---------- */
 
 static GdkRectangle drag_rect(App *app)
 {
-    GdkRectangle r, screen_rect = {0, 0, app->width, app->height}, clipped = {0};
-    r.x = (int)floor(MIN(app->x0, app->x1));
-    r.y = (int)floor(MIN(app->y0, app->y1));
-    r.width = (int)ceil(MAX(app->x0, app->x1)) - r.x;
-    r.height = (int)ceil(MAX(app->y0, app->y1)) - r.y;
-    gdk_rectangle_intersect(&r, &screen_rect, &clipped);
-    return clipped;
+    return rect_from_drag(app->x0, app->y0, app->x1, app->y1, app->width, app->height);
 }
 
 /* Clique simples: seleciona a janela sob o cursor (ou nada). */
 static void select_at(App *app, double x, double y)
 {
-    app->have_sel = window_at(app, x, y, &app->sel);
+    app->have_sel = window_at(app->windows, x, y, &app->sel);
 }
 
 /* O que está destacado agora; *tentative = ainda não é uma seleção. */
@@ -169,11 +148,10 @@ static gboolean shown_rect(App *app, GdkRectangle *r, gboolean *tentative)
 static GdkPixbuf *crop(App *app)
 {
     GdkRectangle r = app->have_sel ? app->sel : (GdkRectangle){0, 0, app->width, app->height};
-    int s = app->scale;
-    GdkPixbuf *sub = gdk_pixbuf_new_subpixbuf(app->shot, r.x * s, r.y * s, r.width * s, r.height * s);
-    GdkPixbuf *copy = gdk_pixbuf_copy(sub);
-    g_object_unref(sub);
-    return copy;
+    GdkPixbuf *pix = crop_capture(app->shot, &r, app->scale);
+    if (!pix)
+        g_printerr("printa: seleção fora da tela\n");
+    return pix;
 }
 
 static char *default_dir(void)
@@ -185,20 +163,15 @@ static char *default_dir(void)
 static char *default_name(void)
 {
     GDateTime *now = g_date_time_new_now_local();
-    char *name = g_date_time_format(now, "Captura_%Y-%m-%d_%H-%M-%S.png");
+    char *name = capture_filename(now);
     g_date_time_unref(now);
     return name;
 }
 
 static gboolean save_pixbuf(GdkPixbuf *pix, const char *path)
 {
-    const char *type = "png";
-    if (g_str_has_suffix(path, ".jpg") || g_str_has_suffix(path, ".jpeg") ||
-        g_str_has_suffix(path, ".JPG") || g_str_has_suffix(path, ".JPEG"))
-        type = "jpeg";
-
     GError *err = NULL;
-    if (!gdk_pixbuf_save(pix, path, type, &err, NULL)) {
+    if (!gdk_pixbuf_save(pix, path, image_format_for(path), &err, NULL)) {
         g_printerr("printa: não foi possível salvar %s: %s\n", path, err->message);
         g_error_free(err);
         return FALSE;
@@ -225,6 +198,10 @@ static void finish(App *app, int status)
 static void accept_save_and_copy(App *app)
 {
     GdkPixbuf *pix = crop(app);
+    if (!pix) {
+        finish(app, 1);
+        return;
+    }
     char *dir = default_dir(), *name = default_name();
     char *path = g_build_filename(dir, name, NULL);
     g_mkdir_with_parents(dir, 0755);
@@ -240,6 +217,10 @@ static void accept_save_and_copy(App *app)
 static void accept_copy(App *app)
 {
     GdkPixbuf *pix = crop(app);
+    if (!pix) {
+        finish(app, 1);
+        return;
+    }
     copy_pixbuf(pix);
     g_object_unref(pix);
     finish(app, 0);
@@ -266,9 +247,9 @@ static void accept_save_as(App *app)
     if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
         char *path = gtk_file_chooser_get_filename(fc);
         GdkPixbuf *pix = crop(app);
-        ok = save_pixbuf(pix, path);
+        ok = pix && save_pixbuf(pix, path);
         saved = TRUE;
-        g_object_unref(pix);
+        g_clear_object(&pix);
         g_free(path);
     }
     gtk_widget_destroy(dlg);
@@ -428,7 +409,7 @@ static gboolean on_button_release(GtkWidget *w, GdkEventButton *ev, App *app)
     app->x1 = ev->x;
     app->y1 = ev->y;
 
-    if (fabs(app->x1 - app->x0) < CLICK_SLOP && fabs(app->y1 - app->y0) < CLICK_SLOP) {
+    if (is_click(app->x0, app->y0, app->x1, app->y1)) {
         select_at(app, ev->x, ev->y);
     } else {
         app->sel = drag_rect(app);
@@ -445,7 +426,7 @@ static gboolean on_motion(GtkWidget *w, GdkEventMotion *ev, App *app)
         app->x1 = ev->x;
         app->y1 = ev->y;
     } else {
-        app->have_hover = window_at(app, ev->x, ev->y, &app->hover);
+        app->have_hover = window_at(app->windows, ev->x, ev->y, &app->hover);
     }
     gtk_widget_queue_draw(w);
     return TRUE;
@@ -498,28 +479,18 @@ static gboolean on_map(GtkWidget *w, GdkEvent *ev, App *app)
     int x, y;
     GdkDevice *pointer = gdk_seat_get_pointer(gdk_display_get_default_seat(gtk_widget_get_display(w)));
     gdk_device_get_position(pointer, NULL, &x, &y);
-    app->have_hover = window_at(app, x, y, &app->hover);
+    app->have_hover = window_at(app->windows, x, y, &app->hover);
     update_save_button(app);
     gtk_widget_queue_draw(w);
     return FALSE;
 }
 
-/* Põe o botão Salvar logo abaixo do canto inferior direito da seleção;
- * sem espaço embaixo, ele fica por dentro, no mesmo canto. */
 static gboolean on_child_position(GtkOverlay *overlay, GtkWidget *child, GdkRectangle *pos, App *app)
 {
     (void)overlay;
-    const int gap = 8;
     GtkRequisition req;
     gtk_widget_get_preferred_size(child, NULL, &req);
-    GdkRectangle *s = &app->sel;
-
-    pos->width = req.width;
-    pos->height = req.height;
-    pos->x = CLAMP(s->x + s->width - req.width, 0, MAX(app->width - req.width, 0));
-    pos->y = s->y + s->height + gap;
-    if (pos->y + req.height > app->height)
-        pos->y = MAX(s->y + s->height - req.height - gap, 0);
+    *pos = save_button_position(&app->sel, req.width, req.height, app->width, app->height);
     return TRUE;
 }
 
